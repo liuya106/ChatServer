@@ -5,6 +5,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "socket.h"
 
@@ -14,10 +18,14 @@ struct server_sock {
     int inbuf;
 };
 
-int main(void) {
+int main(int argc, char **argv) {
+    char *host_ip = "127.0.0.1";
     struct server_sock s;
     s.inbuf = 0;
     int exit_status = 0;
+    if (argc==2) {
+        host_ip = argv[1];
+    }
     
     // Create the socket FD.
     s.sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -30,7 +38,7 @@ int main(void) {
     struct sockaddr_in server;
     server.sin_family = AF_INET;
     server.sin_port = htons(SERVER_PORT);
-    if (inet_pton(AF_INET, "127.0.0.1", &server.sin_addr) < 1) {
+    if (inet_pton(AF_INET, host_ip, &server.sin_addr) < 1) {
         perror("client: inet_pton");
         close(s.sock_fd);
         exit(1);
@@ -62,9 +70,11 @@ int main(void) {
         }
         else {
             // Replace LF+NULL with CR+LF
-            buf[name_len-1] = '\r';
-            buf[name_len] = '\n';
-            if (write_to_socket(s.sock_fd, buf, name_len+1)) {
+            char protocol[MAX_NAME+3] = "1";
+            strncat(protocol, buf, name_len-1);
+            strncat(protocol, "\r", MAX_NAME);
+            strncat(protocol, "\n", MAX_NAME);
+            if (write_to_socket(s.sock_fd, protocol, name_len+2)) {
                 fprintf(stderr, "Error sending username.\n");
                 free(buf);
                 exit(1);
@@ -107,6 +117,7 @@ int main(void) {
      */
     while(1) {
         char buffer[BUF_SIZE];
+        char img[BUF_SIZE];
 
         fd_set read_fds;
         FD_ZERO(&read_fds);
@@ -144,32 +155,95 @@ int main(void) {
                 perror("fgets");
                 exit(1);
             }else{
-                int len = strlen(buffer);
-                if (len!=MAX_USER_MSG+1){
-                    strncat(buffer, "\r", 1);
-                    strncat(buffer, "\n", 1);
-                    int w= write_to_socket(s.sock_fd, buffer, len+2);
-                    if (w == 1){
-                        perror("write_to_socket");
-                        exit_status = 1;
-                        break;
-                    }else if(w == 2){
-                        break;
+                
+                if (buffer[0]=='.'){
+                    if (buffer[1]=='k' && buffer[2]== ' '){
+                        buffer[2] = '0';
+                        buffer[strlen(buffer)-1] = '\0';                 //remove the newline
+                        memmove(buffer, &(buffer[2]), BUF_SIZE-2);
+
+                    }else if(buffer[1]=='e' &&buffer[2] == ' '){             //sending image
+                        buffer[strlen(buffer)-1] = '\0';                 //remove the newline
+                        memmove(buffer, &(buffer[3]), BUF_SIZE-3);
+                        
+                        int fd[2];
+                        if (pipe(fd)==-1){
+                            perror("pipe");
+                            exit(1);
+                        }
+                        int f = fork();
+
+                        if (f>0){
+                            close(fd[1]);
+                            int red = read(fd[0], img, MAX_IMG_LEN);
+                            if (red > MAX_IMG_LEN||red==-1){
+                                perror("read");
+                                exit(1);
+                            }
+                            char protocol[BUF_SIZE] = "2";
+                            strncat(protocol, img, BUF_SIZE); 
+                            strncat(protocol, "\r", BUF_SIZE);
+                            strncat(protocol, "\n", BUF_SIZE);
+                            int protocol_len = strlen(protocol);
+                            //printf("%s", protocol);           //newly added
+                            int wrote = write_to_socket(s.sock_fd, protocol, protocol_len);
+                            if (wrote == 1){
+                                perror("write_to_socket");
+                                exit_status = 1;
+                                break;
+                            }else if(wrote == 2){
+                                break;
+                            }
+                            close(fd[0]);
+                            continue;
+                        }else if(f==0){
+                            close(fd[0]);
+                            char path[MAX_USER_MSG+9] = "./emotes/";
+                            strncat(path, buffer, MAX_USER_MSG-3);
+                            dup2(fd[1], fileno(stdout));
+                            if (execlp("base64", "base64", "-w0", (char*)path, (char *)NULL)==-1){
+                                printf("Error: Emote image not found");
+                            }
+                            close(fd[1]);
+                            exit(0);
+                        }else{
+                            perror("fork");
+                            exit(1);
+                        }
+
+                    }else{
+                        char protocol[BUF_SIZE] = "1";
+                        strncat(protocol, buffer, strlen(buffer));
+                        strcpy(buffer, protocol);
                     }
+
                 }else{
-                    if (buffer[MAX_USER_MSG]!='\n'){
-                        ungetc(buffer[MAX_USER_MSG], stdin);
+                    char protocol[BUF_SIZE] = "1";
+                    strncat(protocol, buffer, strlen(buffer));
+                    strcpy(buffer, protocol);
+                }
+                
+                int w;
+                int len = strlen(buffer);
+                if (len!=MAX_USER_MSG+2){
+                    strncat(buffer, "\r", BUF_SIZE);
+                    strncat(buffer, "\n", BUF_SIZE);
+                    w= write_to_socket(s.sock_fd, buffer, len+2);
+                }else{
+                    if (buffer[MAX_USER_MSG+1]!='\n'){
+                        ungetc(buffer[MAX_USER_MSG+1], stdin);
+                        buffer[MAX_USER_MSG+1] = '\n';
                     }
-                    buffer[MAX_USER_MSG] = '\r';
-                    buffer[MAX_USER_MSG+1] = '\n';
-                    int w = write_to_socket(s.sock_fd, buffer, MAX_USER_MSG+2);
-                    if (w == 1){
-                        perror("write_to_socket");
-                        exit_status = 1;
-                        break;
-                    }else if(w == 2){
-                        break;
-                    }
+                    buffer[MAX_USER_MSG+2] = '\r';
+                    buffer[MAX_USER_MSG+3] = '\n';
+                    w = write_to_socket(s.sock_fd, buffer, MAX_USER_MSG+4);
+                }
+                if (w == 1){
+                    perror("write_to_socket");
+                    exit_status = 1;
+                    break;
+                }else if(w == 2){
+                    break;
                 }
             }
         }
@@ -193,7 +267,91 @@ int main(void) {
                 break;
             }else if(r==0){
                 while(!get_message(&msg, s.buf, &(s.inbuf))){
-                    printf("%s", msg);
+                    if (msg[0]=='1'){
+                        printf("%s", &(msg[1]));
+                    }else if(msg[0]=='2'){
+                        char *pic = strchr(msg, ' ');
+                        //printf("%s", &(pic[1]));      //newly added
+                        char pip_path[100]="./emotepipe.jpg";
+                        
+                        int fo = fork();
+                        if (fo>0){
+                            if (mkfifo(pip_path, 0666)==-1){
+                                perror("mkfifo");
+                                exit(1);
+                            }
+                            wait(NULL);
+                            if (unlink(pip_path)==-1){
+                                perror("pip_path");
+                                exit(1);
+                            }
+                        }else if (fo==0){
+                            fo = fork();
+                            if (fo>0){
+                                int filefd1 = open(pip_path, O_RDONLY);
+                                if (filefd1==-1){
+                                    perror("open");
+                                    exit(1);
+                                }
+                                execlp("catimg", "catimg", "-w80", pip_path, (char *)NULL);
+                                close(filefd1);
+                                exit(0);
+                            }else if(fo==0){
+                                int pip[2];
+                                if (pipe(pip)==-1){
+                                    perror("pipe");
+                                    exit(1);
+                                }
+                                fo = fork();
+                                if (fo>0){
+                                    wait(NULL);
+                                    close(pip[1]);
+                                    char image[BUF_SIZE];
+                                    if (read(pip[0], image, sizeof(image))==-1){
+                                        perror("read");
+                                        exit(1);
+                                    }
+                                    //printf("!!%s!!", image);           //new
+                                    int filefd2 = open(pip_path, O_WRONLY);
+                                    if (filefd2==-1){
+                                        perror("open");
+                                        exit(1);
+                                    }
+                                    write(filefd2, image, sizeof(image));
+                                    close(pip[0]);
+                                    close(filefd2);
+                                    exit(0);
+                                }else if (fo==0){
+                                    int pi[2];
+                                    if (pipe(pi)==-1){
+                                        perror("pipe");
+                                        exit(1);
+                                    }
+                                    fo = fork();
+                                    if (fo>0){
+                                        wait(NULL);
+                                        dup2(pi[0], fileno(stdin));
+                                        dup2(pip[1], fileno(stdout));
+                                        close(pip[0]);
+                                        close(pi[1]);
+                                        close(pip[1]);
+                                        close(pi[0]);
+                                        execlp("base64", "base64", "-d", (char *)NULL);
+                                        exit(0);
+                                    }else if(fo==0){
+                                        dup2(pi[1], fileno(stdout));
+                                        close(pip[0]);
+                                        close(pip[1]);
+                                        close(pi[0]);
+                                        close(pi[1]);
+                                        execlp("echo", "echo", &(pic[1]), (char *)NULL);
+                                        
+                                    }
+                                    
+                                }
+                            }
+                        }
+                    }
                     free(msg);
                 }
             }

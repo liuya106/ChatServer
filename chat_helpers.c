@@ -14,19 +14,28 @@ int write_buf_to_client(struct client_sock *c, char *buf, int len) {
 
 int remove_client(struct client_sock **curr, struct client_sock **clients) {
     if ((*clients)->sock_fd == (*curr)->sock_fd){
-        *clients = (*clients)->next;
+        if ((*clients)->next) {           //change the next client state to 1 
+            (*clients)->next->state = 1;  //when first was removed
+        }
+        free((*clients)->username-1);
+        struct client_sock *temp = (*clients)->next;
+        free(*clients);
+        *clients = temp;
         *curr = *clients;
         return 0;
     }
     struct client_sock *loo = *clients;
     
-    while (loo->next->sock_fd != (*curr)->sock_fd && loo != NULL){
+    while (loo->next->sock_fd != (*curr)->sock_fd && loo->next != NULL){
         loo = loo->next;
     }
     if (loo->next==NULL){
         return 1; // Couldn't find the client in the list, or empty list
     }
-    loo->next = (*curr)->next;
+    free(loo->next->username-1);
+    struct client_sock *temp = (*curr)->next;
+    free(loo->next);
+    loo->next = temp;
     *curr = loo->next;
     return 0;
 }
@@ -39,7 +48,7 @@ int set_username(struct client_sock *curr) {
     //To be completed. Hint: Use get_message().
     char *name;
     if (get_message(&name, curr->buf, &(curr->inbuf))==0){
-        curr->username = name;
+        curr->username = &(name[1]);
         return 0;
     }else{
         return 1;

@@ -21,12 +21,16 @@
     #define MAX_USER_MSG 128
 #endif
 
+#ifndef MAX_IMG_LEN
+    #define MAX_IMG_LEN 65535
+#endif
+
 /*
- * Under our chat protocol, the maximum size of a message sent by
- * a server is MAX(username) + space + MAX(user message) + CRLF
+ * Under our chat protocol, the maximum size of a message sent by a server is:
+ * CODE + MAX(username) + SPACE + MAX(user message or image) + CRLF
  */
 #ifndef MAX_PROTO_MSG
-    #define MAX_PROTO_MSG MAX_NAME+1+MAX_USER_MSG+2
+    #define MAX_PROTO_MSG 1+MAX_NAME+1+MAX_IMG_LEN+2
 #endif
 
 /* Working with string functions to parse/manipulate the contents of
