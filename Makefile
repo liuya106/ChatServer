@@ -1,4 +1,4 @@
-PORT=55470
+PORT=55474
 CFLAGS = -DSERVER_PORT=$(PORT) -g -Wall -Werror -fsanitize=address
 
 all: chat_server chat_client

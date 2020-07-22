@@ -174,6 +174,11 @@ int main(int argc, char **argv) {
                         int f = fork();
 
                         if (f>0){
+                            int status;
+                            wait(&status);
+                            if (WEXITSTATUS(status)==1){
+                                continue;
+                            }
                             close(fd[1]);
                             int red = read(fd[0], img, MAX_IMG_LEN);
                             if (red > MAX_IMG_LEN||red==-1){
@@ -202,7 +207,8 @@ int main(int argc, char **argv) {
                             strncat(path, buffer, MAX_USER_MSG-3);
                             dup2(fd[1], fileno(stdout));
                             if (execlp("base64", "base64", "-w0", (char*)path, (char *)NULL)==-1){
-                                printf("Error: Emote image not found");
+                                perror("base64");
+                                exit(1);
                             }
                             close(fd[1]);
                             exit(0);
@@ -272,8 +278,9 @@ int main(int argc, char **argv) {
                     }else if(msg[0]=='2'){
                         char *pic = strchr(msg, ' ');
                         //printf("%s", &(pic[1]));      //newly added
-                        char pip_path[100]="./emotepipe.jpg";
-                        
+                        char pip_path[100];
+                        sprintf(pip_path, "./emotepipe%d.jpg", getpid());
+
                         int fo = fork();
                         if (fo>0){
                             if (mkfifo(pip_path, 0666)==-1){
