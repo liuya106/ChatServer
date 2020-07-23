@@ -34,10 +34,10 @@ mkfifo error: Operation not permitted
 
 Open: no such file
 
-This is because old WSL configuration does not permit creating named pipe on your machine, you can install DrvFs on WSL, all you need to do is to type:
+This is because old WSL configuration does not permit creating named pipe on your machine, you can mount DrvFs with "metadata" flag, all you need to do is to type on terminal:
 
 sudo umount /mnt/c
 
 sudo mount -t drvfs C: /mnt/c -o metadata
 
-Then you should be fine running this program, more details regarding to this problem can be found: https://devblogs.microsoft.com/commandline/chmod-chown-wsl-improvements/
+Then you should be fine running this program, more details regarding to this problem can be found at: https://devblogs.microsoft.com/commandline/chmod-chown-wsl-improvements/
